@@ -8,56 +8,72 @@
 -behaviour(gen_mod).
  
 %% public methods for this module
--export([start/2, stop/1, on_filter_packet/1]).
+-export([start/2, stop/1, filter_packet/1, reload/3,
+         depends/2, mod_options/1]).
+
+-record(servertime, {value}).
  
 %% included for writing to ejabberd log file
--include("ejabberd.hrl").
+-include("logger.hrl").
 
 start(_Host, _Opt) -> 
     ?INFO_MSG("starting mod_add_timestamp", []),
-    ejabberd_hooks:add(filter_packet, global, ?MODULE, on_filter_packet, 120).
+    ejabberd_hooks:add(filter_packet, global, ?MODULE, filter_packet, 120).
 
 stop(_Host) -> 
     ?INFO_MSG("stopping mod_add_timestamp", []),
-    ejabberd_hooks:delete(filter_packet, global, ?MODULE, on_filter_packet, 120).
+    ejabberd_hooks:delete(filter_packet, global, ?MODULE, filter_packet, 120).
 
-on_filter_packet({From, To, XML} = Packet) ->
-    ?INFO_MSG("on_filter_packet ~p~n", [Packet]),
+reload(_Host, _NewOpts, _OldOpts) ->
+    ok.
 
-    Type = xml:get_tag_attr_s("type", XML),
-    ?INFO_MSG("on_filter_packet Message Type ~p~n",[Type]),
+filter_packet(Packet) ->
+    ?INFO_MSG("filter_packet ~p~n", [Packet]),
 
-    DataTag = xml:get_subtag(XML, "data"), 
-    ?INFO_MSG("on_filter_packet DataTag ~p~n",[DataTag]),
+    Type = xmpp:get_type(Packet),
+    ?INFO_MSG("filter_packet Message Type ~p~n",[Type]),
 
-    %% Add timestamp to chat message and where no DataTag exist 
-    case Type =:= "chat" andalso DataTag =:= false of
-    true -> 
-        ?INFO_MSG("on_filter_packet Chat = True", []),
-        
-        Timestamp = now_to_microseconds(erlang:now()),
-        ?INFO_MSG("on_filter_packet Timestamp ~p~n", [Timestamp]),
+    TimestampTag = xmpp:get_subtag(Packet, #servertime{}), 
+    ?INFO_MSG("filter_packet DataTag ~p~n",[TimestampTag]),
 
-        FlatTimeStamp = lists:flatten(io_lib:format("~p", [Timestamp])),
-        ?INFO_MSG("on_filter_packet FlatTimestamp ~p~n", [FlatTimeStamp]),
+    %% Add timestamp to chat and chatgroup message and where no DataTag exist 
+    if
+        ((Type =:= chat) andalso TimestampTag =:= false) or (Type =:= groupchat andalso TimestampTag =:= false) ->
+            Return = add_timestamp(Packet);
+        true ->
+            ?INFO_MSG("on_filter_packet Chat = False", []),
+            Return = Packet,
+            ?INFO_MSG("on_filter_packet ELSE Return ~p~n", [Return])
+    end,
+  
 
-        XMLTag = {xmlelement,"data", [{"timestamp", FlatTimeStamp}], []}, 
-        TimeStampedPacket = xml:append_subtags(XML, [XMLTag]),
-        ?INFO_MSG("on_filter_packet TimeStamped Packet ~p~n", [TimeStampedPacket]),
+    ?INFO_MSG("filter_packet Return Value ~p~n", [Return]),
 
-        ReturnPacket = {From, To, TimeStampedPacket},
-        ?INFO_MSG("on_filter_packet Return Packet ~p~n", [ReturnPacket]),
+    Return.
 
-        Return = ReturnPacket,
+add_timestamp(Packet) ->
+    ?INFO_MSG("on_filter_packet Chat = True", []),
+    From = xmpp:get_from(Packet),
+    To = xmpp:get_to(Packet),
+            
+    Timestamp = now_to_microseconds(erlang:now()),
+    ?INFO_MSG("on_filter_packet Timestamp ~p~n", [Timestamp]),
 
-        ?INFO_MSG("on_filter_packet TRUE Return ~p~n", [Return]);
-    false ->
-        ?INFO_MSG("on_filter_packet Chat = False", []),
-        Return = Packet,
-        ?INFO_MSG("on_filter_packet ELSE Return ~p~n", [Return])
-    end,   
+    FlatTimeStamp = lists:flatten(io_lib:format("~p", [Timestamp])),
+    ?INFO_MSG("on_filter_packet FlatTimestamp ~p~n", [FlatTimeStamp]),
 
-    ?INFO_MSG("on_filter_packet Return Value ~p~n", [Return]),
+    TimeStampedPacket = xmpp:append_subtags(Packet, [#servertime{value = FlatTimeStamp}]),
+    ejabberd_router:route(xmpp:set_from_to(TimeStampedPacket, From, To)),
+    %% XMLTag = {xmlelement,"data", [{"timestamp", FlatTimeStamp}], []},
+    %% TimeStampedPacket = fxml:decode(fxml:append_subtags(fxml:encode(Packet), [XMLTag])),
+    %% ?INFO_MSG("on_filter_packet TimeStamped Packet ~p~n", [TimeStampedPacket]),
+
+    ReturnPacket = TimeStampedPacket,
+    ?INFO_MSG("on_filter_packet Return Packet ~p~n", [ReturnPacket]),
+
+    Return = ReturnPacket,
+
+    ?INFO_MSG("on_filter_packet TRUE Return ~p~n", [Return]),
 
     Return.
     
@@ -66,3 +82,8 @@ now_to_microseconds({Mega, Sec, Micro}) ->
     ?INFO_MSG("now_to_milliseconds Mega ~p Sec ~p Micro ~p~n", [Mega, Sec, Micro]),
     (Mega*1000000 + Sec)*1000000 + Micro. 
 
+depends(_Host, _Opts) ->
+    [].
+
+mod_options(_) ->
+    [].
