@@ -33,7 +33,8 @@ filter_packet(Packet) ->
     Type = xmpp:get_type(Packet),
     ?INFO_MSG("filter_packet Message Type ~p~n",[Type]),
 
-    TimestampTag = xmpp:get_subtag(Packet, #servertime{}), 
+    TimestampTag = fxml:get_subtag(fxml:to_xmlel(Packet), <<"servertime">>), 
+    %% TimestampTag = fxml:get_path_s(Packet, [{elem, "servertime"}]), 
     ?INFO_MSG("filter_packet DataTag ~p~n",[TimestampTag]),
 
     %% Add timestamp to chat and chatgroup message and where no DataTag exist 
@@ -87,3 +88,4 @@ depends(_Host, _Opts) ->
 
 mod_options(_) ->
     [].
+
